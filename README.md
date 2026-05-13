@@ -1,73 +1,51 @@
-# React + TypeScript + Vite
+# Vite + Amplify Todo
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A super-basic React todo app on Vite, deployed to AWS Amplify Hosting. Demonstrates two operational features:
 
-Currently, two official plugins are available:
+- **Version check** — running clients are notified when a new deploy goes out.
+- **Maintenance mode** — toggle via an Amplify env var to serve a static maintenance page.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Local development
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
+npm run dev        # http://localhost:5173
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Production preview
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm run build
+npm run preview
 ```
+
+## Toggling maintenance mode locally
+
+```bash
+VITE_MAINTENANCE_MODE=true npm run build && npm run preview
+```
+
+## Deployment (AWS Amplify Hosting)
+
+1. Push this repo to GitHub.
+2. In the AWS Amplify Console, choose **Host web app** → connect to the GitHub repo and pick the `main` branch. Amplify auto-detects `amplify.yml`.
+3. After the first build, set up the SPA rewrite so deep links (e.g., `/about`) work on refresh:
+   - App settings → **Rewrites and redirects** → Add a rule:
+     - Source: `</^[^.]+$|\.(?!(json|js|css|svg|png|jpg|jpeg|gif|webp|ico|woff|woff2|map)$)([^.]+$)/>`
+     - Target: `/index.html`
+     - Type: `200 (Rewrite)`
+
+## Toggling maintenance mode in production
+
+1. AWS Amplify Console → App settings → **Environment variables**.
+2. Set `VITE_MAINTENANCE_MODE=true`.
+3. Go to the `main` branch → **Redeploy this version**.
+4. Wait for the build to finish. Running clients pick up the change within ~30s of the next `status.json` poll.
+5. To exit maintenance: set `VITE_MAINTENANCE_MODE=false` (or remove it) and redeploy.
+
+## How the version check works
+
+- `scripts/generate-status.mjs` runs as `prebuild` and writes `public/status.json` with the current commit SHA (`AWS_COMMIT_ID` in Amplify, `git rev-parse --short HEAD` locally).
+- The same SHA is injected into the JS bundle via Vite's `define` as `__APP_VERSION__`.
+- The app polls `/status.json` every 30 seconds. If the fetched version differs from the bundle version, a persistent "new version available — reload" banner appears.
+- `customHttp.yml` sets `Cache-Control: no-cache` on `/status.json` so clients always see the latest deploy.
