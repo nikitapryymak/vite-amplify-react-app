@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { APP_VERSION } from '../lib/version';
+import { useEffect, useState } from "react";
+import { APP_VERSION } from "../lib/version";
 
 type StatusFile = {
   version: string;
@@ -11,7 +11,7 @@ type Status = {
   isOutdated: boolean;
 };
 
-const POLL_INTERVAL_MS = 30_000;
+const POLL_INTERVAL_MS = 30000;
 
 export function useStatus(): Status {
   const [status, setStatus] = useState<Status>({
@@ -24,7 +24,7 @@ export function useStatus(): Status {
 
     async function fetchStatus() {
       try {
-        const res = await fetch('/status.json', { cache: 'no-store' });
+        const res = await fetch("/status.json", { cache: "no-store" });
         if (!res.ok) return;
         const data = (await res.json()) as StatusFile;
         if (cancelled) return;
