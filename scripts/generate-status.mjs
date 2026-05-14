@@ -8,7 +8,7 @@ const status = {
   maintenance: process.env.VITE_MAINTENANCE_MODE === 'true',
 };
 
-const outPath = 'public/status.json';
+const outPath = 'dist/status.json';
 mkdirSync(dirname(outPath), { recursive: true });
 writeFileSync(outPath, JSON.stringify(status, null, 2) + '\n');
 console.log(`Wrote ${outPath}:`, status);

@@ -26,22 +26,24 @@ Storage is in-memory only. No backend, no auth, no persistence across reloads.
 A single JSON file at the deployed site root drives both features:
 
 ```json
-{ "version": "abc1234", "maintenance": false }
+{ "version": "0.1.0", "maintenance": false }
 ```
 
-- Generated at build time by `scripts/generate-status.mjs` (runs as `prebuild`).
-- Written into `public/`, copied to `dist/` by Vite.
+- Generated at build time by `scripts/generate-status.mjs` (runs as `postbuild`).
+- Written directly into `dist/` after Vite finishes its build.
 - Served by Amplify Hosting with `Cache-Control: no-cache, no-store, must-revalidate` via `customHttp.yml` so clients always see the latest values.
 
 ### Build-time generation
 
 `scripts/generate-status.mjs`:
 
-- `version`: `process.env.AWS_COMMIT_ID` (Amplify provides this) → falls back to `git rev-parse --short HEAD` for local builds.
+- `version`: read from the `version` field in `package.json` (single source of truth).
 - `maintenance`: `process.env.VITE_MAINTENANCE_MODE === 'true'`.
-- Writes `public/status.json`.
+- Writes `dist/status.json`.
 
-The same `version` is also exposed to the bundle via Vite `define` as `__APP_VERSION__`, so the running app can compare its bundled version against the freshly-fetched one.
+The same `version` (from `package.json`) is exposed to the bundle via Vite `define` as `__APP_VERSION__`, so the running app can compare its bundled version against the freshly-fetched one.
+
+To trigger an update prompt for running clients, bump the `version` in `package.json` and redeploy.
 
 ### Runtime polling
 
@@ -140,7 +142,9 @@ Fixed bottom-right toast. Slides in on mount. Persistent — no dismiss button. 
 ├── scripts/
 │   └── generate-status.mjs
 ├── public/
-│   └── (status.json — generated)
+│   └── (Vite-scaffolded static assets — favicon, etc.)
+├── dist/
+│   └── (build output; status.json written here by postbuild)
 ├── src/
 │   ├── main.tsx
 │   ├── App.tsx
@@ -175,7 +179,7 @@ frontend:
   phases:
     preBuild:
       commands:
-        - npm ci
+        - npm install --no-audit --no-fund
     build:
       commands:
         - npm run build
@@ -187,6 +191,8 @@ frontend:
     paths:
       - node_modules/**/*
 ```
+
+`npm install` (not `npm ci`) is used because `npm ci` is strict about lock-file/platform matches: lock files generated on macOS arm64 don't include the Linux-only optional native deps that Amplify's build environment expects, causing `EUSAGE` failures. `npm install` resolves the platform differences leniently.
 
 ### `customHttp.yml`
 
@@ -211,12 +217,12 @@ This is Amplify's standard SPA rewrite — it sends any path that isn't a static
 ### `vite.config.ts`
 
 - React plugin
-- `define`: injects `__APP_VERSION__` from `AWS_COMMIT_ID` env var (or git SHA fallback)
+- `define`: injects `__APP_VERSION__` by reading the `version` field from `package.json`
 
 ## Local development
 
-- `npm run dev` — standard Vite dev server. `__APP_VERSION__` is `'dev'`, `status.json` not generated (the dev server serves nothing at `/status.json`), `useStatus` handles 404s gracefully (silent fail keeps the app running).
-- `npm run build && npm run preview` — full production preview, status.json generated.
+- `npm run dev` — standard Vite dev server. `__APP_VERSION__` reflects the current `package.json` version, but `dist/status.json` isn't generated (the dev server has nothing at `/status.json`), so `useStatus` 404s silently and the app runs normally.
+- `npm run build && npm run preview` — full production preview; `status.json` is generated into `dist/` by the `postbuild` step and served by the preview server.
 - To test maintenance mode locally: `VITE_MAINTENANCE_MODE=true npm run build && npm run preview`.
 - To test version-check locally: build once, run preview, then manually edit `dist/status.json` to change the version and watch the banner appear.
 
@@ -245,3 +251,6 @@ This is Amplify's standard SPA rewrite — it sends any path that isn't a static
 - **Dark mode:** Skipped.
 - **Local maintenance testing:** Build + preview with env var set.
 - **Router:** `react-router-dom` with three real pages (Todos, About, Contact) + a 404. Dummy content on About/Contact.
+- **Version source:** `version` field in `package.json`. Bump it to trigger an update prompt for running clients on next deploy.
+- **`status.json` location:** Written as `postbuild` directly into `dist/status.json` — kept out of `public/` since it's a build artifact, not a source asset.
+- **Build install command:** `npm install --no-audit --no-fund` in `amplify.yml` (not `npm ci`) — works around npm's cross-platform lock-file strictness on macOS-generated lock files.

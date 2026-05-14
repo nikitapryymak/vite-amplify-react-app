@@ -4,9 +4,11 @@
 
 **Goal:** Build a super-basic React todo app on Vite, deployed to AWS Amplify Hosting, with a version-check banner and an env-var-toggled maintenance mode.
 
-**Architecture:** Single-page React app with `react-router-dom` for a few dummy pages. A build-generated `public/status.json` carries the current commit SHA and a maintenance flag (set from `VITE_MAINTENANCE_MODE`). The app polls `status.json` every 30s; mismatched version → reload banner, `maintenance: true` → maintenance screen preempts the router. In-memory state only; no backend.
+**Architecture:** Single-page React app with `react-router-dom` for a few dummy pages. A build-generated `dist/status.json` carries the current `package.json` version and a maintenance flag (set from `VITE_MAINTENANCE_MODE`). The app polls `status.json` every 30s; mismatched version → reload banner, `maintenance: true` → maintenance screen preempts the router. In-memory state only; no backend.
 
-**Tech Stack:** Vite, React 18, TypeScript, Tailwind CSS, react-router-dom v6, AWS Amplify Hosting (Gen 1).
+**Tech Stack:** Vite, React 19, TypeScript, Tailwind CSS v3, react-router-dom v7, AWS Amplify Hosting (Gen 1).
+
+**Note:** The original plan generated `status.json` as a `prebuild` step into `public/`, derived the version from `AWS_COMMIT_ID`/git SHA, and used `npm ci` in `amplify.yml`. Post-implementation refactors moved `status.json` to a `postbuild` step writing directly to `dist/`, switched the version source to `package.json`, and switched the Amplify build install to `npm install --no-audit --no-fund` to avoid cross-platform lock-file issues. Task 3, Task 4, Task 10, Task 11 have been updated below; commit history reflects the original plan steps plus the subsequent refactor commits.
 
 **Note on tests:** The spec explicitly defers tests for this learning project. Each task ends with a manual verification step (build / dev server / browser check) instead of TDD.
 
@@ -32,7 +34,9 @@ Files created across the plan:
 ├── scripts/
 │   └── generate-status.mjs
 ├── public/
-│   └── (status.json — generated at build)
+│   └── (Vite-scaffolded static assets)
+├── dist/
+│   └── (build output; status.json written here by postbuild)
 └── src/
     ├── main.tsx
     ├── App.tsx
@@ -195,21 +199,14 @@ git commit -m "configure tailwind"
 ```ts
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import { execSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 
-function resolveVersion(): string {
-  if (process.env.AWS_COMMIT_ID) return process.env.AWS_COMMIT_ID.slice(0, 7);
-  try {
-    return execSync('git rev-parse --short HEAD').toString().trim();
-  } catch {
-    return 'dev';
-  }
-}
+const pkg = JSON.parse(readFileSync('./package.json', 'utf-8')) as { version: string };
 
 export default defineConfig({
   plugins: [react()],
   define: {
-    __APP_VERSION__: JSON.stringify(resolveVersion()),
+    __APP_VERSION__: JSON.stringify(pkg.version),
   },
 });
 ```
@@ -248,7 +245,7 @@ function App() {
 export default App;
 ```
 
-Run `npm run dev` and confirm the page shows the current short git SHA (or `dev` if no commits exist yet — there's one commit from Task 1 so it should be a SHA).
+Run `npm run dev` and confirm the page shows the current `package.json` version (e.g., `0.0.0`).
 
 Stop the server. Revert `src/App.tsx` back to the Tailwind smoke test from Task 2 (we'll wire the version up properly in Task 8).
 
@@ -261,65 +258,52 @@ git commit -m "inject build-time version constant"
 
 ---
 
-## Task 4: Build script that generates `public/status.json`
+## Task 4: Build script that generates `dist/status.json`
 
 **Files:**
 - Create: `scripts/generate-status.mjs`
 - Modify: `package.json`
-- Modify: `.gitignore`
 
 - [ ] **Step 1: Create the generator**
 
 `scripts/generate-status.mjs`:
 
 ```js
-import { execSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
-function resolveVersion() {
-  if (process.env.AWS_COMMIT_ID) return process.env.AWS_COMMIT_ID.slice(0, 7);
-  try {
-    return execSync('git rev-parse --short HEAD').toString().trim();
-  } catch {
-    return 'dev';
-  }
-}
+const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'));
 
 const status = {
-  version: resolveVersion(),
+  version: pkg.version,
   maintenance: process.env.VITE_MAINTENANCE_MODE === 'true',
 };
 
-const outPath = 'public/status.json';
+const outPath = 'dist/status.json';
 mkdirSync(dirname(outPath), { recursive: true });
 writeFileSync(outPath, JSON.stringify(status, null, 2) + '\n');
 console.log(`Wrote ${outPath}:`, status);
 ```
 
-- [ ] **Step 2: Wire it into `package.json` as `prebuild`**
+- [ ] **Step 2: Wire it into `package.json` as `postbuild`**
 
-Open `package.json` and add a `prebuild` script. Final `scripts` block should look like:
+Open `package.json` and add a `postbuild` script. Final `scripts` block should look like:
 
 ```json
 "scripts": {
   "dev": "vite",
-  "prebuild": "node scripts/generate-status.mjs",
   "build": "tsc -b && vite build",
+  "postbuild": "node scripts/generate-status.mjs",
   "lint": "eslint .",
   "preview": "vite preview"
 }
 ```
 
-(Adjust to keep whatever Vite scaffolded for `lint`/`build` — the key additions are `prebuild` and that `build` stays as scaffolded.)
+(Adjust to keep whatever Vite scaffolded for `lint`/`build` — the key addition is `postbuild`. It runs automatically after `build` finishes.)
 
-- [ ] **Step 3: Ignore the generated file from git**
+- [ ] **Step 3: `.gitignore` is already correct**
 
-The generator writes `public/status.json` on every build. Add to `.gitignore`:
-
-```
-public/status.json
-```
+`dist/` is already in the scaffolded `.gitignore`, so `dist/status.json` is implicitly ignored. No changes needed.
 
 - [ ] **Step 4: Verify the generator works**
 
@@ -330,23 +314,25 @@ npm run build
 Then:
 
 ```bash
-cat public/status.json
+cat dist/status.json
 ```
 
 You should see something like:
 
 ```json
 {
-  "version": "<short-sha>",
+  "version": "0.0.0",
   "maintenance": false
 }
 ```
+
+(Where `0.0.0` is whatever `package.json`'s `version` field is.)
 
 And:
 
 ```bash
 VITE_MAINTENANCE_MODE=true npm run build
-cat public/status.json
+cat dist/status.json
 ```
 
 Should show `"maintenance": true`. Reset by running `npm run build` once more.
@@ -354,7 +340,7 @@ Should show `"maintenance": true`. Reset by running `npm run build` once more.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add .
+git add scripts/generate-status.mjs package.json
 git commit -m "generate status.json at build time"
 ```
 
@@ -888,7 +874,7 @@ frontend:
   phases:
     preBuild:
       commands:
-        - npm ci
+        - npm install --no-audit --no-fund
     build:
       commands:
         - npm run build
@@ -900,6 +886,8 @@ frontend:
     paths:
       - node_modules/**/*
 ```
+
+`npm install` (rather than `npm ci`) is used because `npm ci` is strict about lock-file ↔ platform alignment: lock files generated on macOS arm64 don't include the Linux-only optional native dependencies that Amplify's build environment expects, which surfaces as `EUSAGE` failures on first deploy. `npm install` handles the cross-platform differences leniently. `--no-audit --no-fund` are speed/quiet flags for CI.
 
 - [ ] **Step 2: Create `customHttp.yml`**
 
@@ -977,10 +965,13 @@ VITE_MAINTENANCE_MODE=true npm run build && npm run preview
 
 ## How the version check works
 
-- `scripts/generate-status.mjs` runs as `prebuild` and writes `public/status.json` with the current commit SHA (`AWS_COMMIT_ID` in Amplify, `git rev-parse --short HEAD` locally).
-- The same SHA is injected into the JS bundle via Vite's `define` as `__APP_VERSION__`.
+- The `version` field in `package.json` is the source of truth.
+- `scripts/generate-status.mjs` runs as `postbuild` and writes that version into `dist/status.json`.
+- The same version is injected into the JS bundle via Vite's `define` as `__APP_VERSION__`.
 - The app polls `/status.json` every 30 seconds. If the fetched version differs from the bundle version, a persistent "new version available — reload" banner appears.
 - `customHttp.yml` sets `Cache-Control: no-cache` on `/status.json` so clients always see the latest deploy.
+
+To trigger an update prompt for running clients, bump `version` in `package.json` and redeploy.
 ```
 
 - [ ] **Step 2: Commit**
@@ -1019,13 +1010,13 @@ npm run lint
 
 Expected: no errors. (If `lint` reports complaints from scaffolded ESLint config in untouched files, address only the ones in files this plan created.)
 
-- [ ] **Step 3: Confirm `public/status.json` is git-ignored**
+- [ ] **Step 3: Confirm generated `dist/status.json` isn't accidentally tracked**
 
 ```bash
 git status
 ```
 
-Expected: clean working tree. `public/status.json` should not appear as untracked.
+Expected: clean working tree. `dist/` (which contains the generated `status.json`) is already ignored, so nothing should appear as untracked.
 
 - [ ] **Step 4: Push and deploy**
 
