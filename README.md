@@ -45,7 +45,10 @@ VITE_MAINTENANCE_MODE=true npm run build && npm run preview
 
 ## How the version check works
 
-- `scripts/generate-status.mjs` runs as `prebuild` and writes `public/status.json` with the current commit SHA (`AWS_COMMIT_ID` in Amplify, `git rev-parse --short HEAD` locally).
-- The same SHA is injected into the JS bundle via Vite's `define` as `__APP_VERSION__`.
+- The `version` field in `package.json` is the source of truth.
+- `scripts/generate-status.mjs` runs as `prebuild` and writes that version into `public/status.json`.
+- The same version is injected into the JS bundle via Vite's `define` as `__APP_VERSION__`.
 - The app polls `/status.json` every 30 seconds. If the fetched version differs from the bundle version, a persistent "new version available — reload" banner appears.
 - `customHttp.yml` sets `Cache-Control: no-cache` on `/status.json` so clients always see the latest deploy.
+
+To trigger an update prompt for running clients, bump `version` in `package.json` and redeploy.

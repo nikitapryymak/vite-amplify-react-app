@@ -1,18 +1,10 @@
-import { execSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
-function resolveVersion() {
-  if (process.env.AWS_COMMIT_ID) return process.env.AWS_COMMIT_ID.slice(0, 7);
-  try {
-    return execSync('git rev-parse --short HEAD').toString().trim();
-  } catch {
-    return 'dev';
-  }
-}
+const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'));
 
 const status = {
-  version: resolveVersion(),
+  version: pkg.version,
   maintenance: process.env.VITE_MAINTENANCE_MODE === 'true',
 };
 
