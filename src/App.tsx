@@ -25,6 +25,8 @@ function App() {
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
       <code className="flex justify-center">
+        envionment: test
+        <br />
         maintenance: {maintenance.toString()}
         <br />
         version: {isOutdated ? "outdated ❌" : "up-to-date ✅"}
